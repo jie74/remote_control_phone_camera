@@ -1,58 +1,40 @@
 """
-远程调用手机摄像头 - Flask + SocketIO 服务器
+远程调用手机摄像头 - Flask + SocketIO 服务器 (固定IP版本)
 手机打开摄像头页面采集画面，通过 WebSocket 传输到电脑端查看
+使用固定IP 10.6.22.1，适用于皎月连等内网穿透环境
 """
 
 import os
 import ssl
-import socket
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 
-
-def get_local_ip():
-    """获取本机局域网IP地址"""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(('8.8.8.8', 80))
-            return s.getsockname()[0]
-    except:
-        return '127.0.0.1'
-
-
-LOCAL_IP = get_local_ip()
+LOCAL_IP = '10.6.22.1'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'camera-stream-secret-key'
 
-# 使用 WebSocket 传输, 允许跨域
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading',
-                    max_http_buffer_size=10 * 1024 * 1024)  # 10MB buffer
+                    max_http_buffer_size=10 * 1024 * 1024)
 
-# 追踪连接的客户端
-cameras = {}   # sid -> info
-viewers = {}   # sid -> info
+cameras = {}
+viewers = {}
 
 
 @app.route('/')
 def index():
-    """首页 - 选择角色"""
     return render_template('index.html')
 
 
 @app.route('/camera')
 def camera():
-    """手机端 - 摄像头采集页面"""
     return render_template('camera.html')
 
 
 @app.route('/viewer')
 def viewer():
-    """电脑端 - 画面查看页面"""
     return render_template('viewer.html')
 
-
-# ========== SocketIO 事件 ==========
 
 @socketio.on('connect')
 def handle_connect():
@@ -65,7 +47,6 @@ def handle_disconnect():
     if sid in cameras:
         cam_info = cameras.pop(sid)
         print(f'[断开] 摄像头断开: {cam_info.get("name", sid)}')
-        # 通知所有观看者
         emit('camera_disconnected', {'id': sid}, broadcast=True)
     if sid in viewers:
         viewers.pop(sid)
@@ -74,14 +55,12 @@ def handle_disconnect():
 
 @socketio.on('register_camera')
 def handle_register_camera(data):
-    """手机端注册为摄像头"""
     sid = request.sid
     cameras[sid] = {
         'name': data.get('name', '未命名摄像头'),
         'sid': sid
     }
     print(f'[注册] 摄像头已注册: {cameras[sid]["name"]}')
-    # 通知所有观看者有新摄像头
     emit('camera_list', {'cameras': [
         {'id': k, 'name': v['name']} for k, v in cameras.items()
     ]}, broadcast=True)
@@ -89,11 +68,9 @@ def handle_register_camera(data):
 
 @socketio.on('register_viewer')
 def handle_register_viewer():
-    """电脑端注册为观看者"""
     sid = request.sid
     viewers[sid] = {'sid': sid}
     print(f'[注册] 观看者已注册: {sid}')
-    # 发送当前摄像头列表
     emit('camera_list', {'cameras': [
         {'id': k, 'name': v['name']} for k, v in cameras.items()
     ]})
@@ -101,14 +78,11 @@ def handle_register_viewer():
 
 @socketio.on('video_frame')
 def handle_video_frame(data):
-    """接收手机端发来的视频帧，转发给所有观看者"""
-    # 将帧数据广播给所有观看者
     for viewer_sid in viewers:
         emit('video_frame', data, room=viewer_sid)
 
 
 def generate_ssl_cert():
-    """生成自签名 SSL 证书（浏览器要求 HTTPS 才能访问摄像头）"""
     cert_dir = os.path.join(os.path.dirname(__file__), 'certs')
     cert_file = os.path.join(cert_dir, 'cert.pem')
     key_file = os.path.join(cert_dir, 'key.pem')
@@ -118,7 +92,6 @@ def generate_ssl_cert():
 
     os.makedirs(cert_dir, exist_ok=True)
 
-    # 使用 cryptography 库生成自签名证书
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -126,10 +99,8 @@ def generate_ssl_cert():
     import datetime
     import ipaddress
 
-    # 生成 RSA 私钥
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    # 构建证书
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, LOCAL_IP),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Camera Stream'),
@@ -155,7 +126,6 @@ def generate_ssl_cert():
         .sign(key, hashes.SHA256())
     )
 
-    # 保存私钥
     with open(key_file, 'wb') as f:
         f.write(key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -163,7 +133,6 @@ def generate_ssl_cert():
             encryption_algorithm=serialization.NoEncryption(),
         ))
 
-    # 保存证书
     with open(cert_file, 'wb') as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
@@ -173,7 +142,6 @@ def generate_ssl_cert():
 
 @app.errorhandler(404)
 def page_not_found(e):
-    """捕获 404 错误，帮助调试"""
     print(f'[404] 请求路径不存在: {request.path}')
     return f'''
     <html><body style="background:#0a0b14;color:#fff;font-family:sans-serif;
@@ -194,12 +162,12 @@ if __name__ == '__main__':
     HOST = '0.0.0.0'
     PORT = 5000
 
-    # 生成 SSL 证书
     cert_file, key_file = generate_ssl_cert()
 
     print('=' * 60)
-    print('  远程调用手机摄像头')
+    print('  远程调用手机摄像头 (固定IP)')
     print('=' * 60)
+    print(f'  固定IP: {LOCAL_IP}')
     print(f'  手机端打开: https://{LOCAL_IP}:{PORT}/camera')
     print(f'  电脑端打开: https://{LOCAL_IP}:{PORT}/viewer')
     print(f'  首页:       https://{LOCAL_IP}:{PORT}/')
