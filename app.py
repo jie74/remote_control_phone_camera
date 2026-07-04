@@ -5,8 +5,22 @@
 
 import os
 import ssl
+import socket
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
+
+
+def get_local_ip():
+    """获取本机局域网IP地址"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(('8.8.8.8', 80))
+            return s.getsockname()[0]
+    except:
+        return '127.0.0.1'
+
+
+LOCAL_IP = get_local_ip()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'camera-stream-secret-key'
@@ -117,7 +131,7 @@ def generate_ssl_cert():
 
     # 构建证书
     subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, '10.6.22.1'),
+        x509.NameAttribute(NameOID.COMMON_NAME, LOCAL_IP),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Camera Stream'),
     ])
 
@@ -132,7 +146,7 @@ def generate_ssl_cert():
         .not_valid_after(now + datetime.timedelta(days=365))
         .add_extension(
             x509.SubjectAlternativeName([
-                x509.IPAddress(ipaddress.IPv4Address('10.6.22.1')),
+                x509.IPAddress(ipaddress.IPv4Address(LOCAL_IP)),
                 x509.IPAddress(ipaddress.IPv4Address('127.0.0.1')),
                 x509.DNSName('localhost'),
             ]),
@@ -186,9 +200,9 @@ if __name__ == '__main__':
     print('=' * 60)
     print('  远程调用手机摄像头')
     print('=' * 60)
-    print(f'  手机端打开: https://10.6.22.1:{PORT}/camera')
-    print(f'  电脑端打开: https://10.6.22.1:{PORT}/viewer')
-    print(f'  首页:       https://10.6.22.1:{PORT}/')
+    print(f'  手机端打开: https://{LOCAL_IP}:{PORT}/camera')
+    print(f'  电脑端打开: https://{LOCAL_IP}:{PORT}/viewer')
+    print(f'  首页:       https://{LOCAL_IP}:{PORT}/')
     print('=' * 60)
     print('  注意: 首次访问时浏览器会提示证书不安全，')
     print('  请点击「高级」→「继续访问」即可。')
